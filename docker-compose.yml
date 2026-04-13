@@ -1,20 +1,87 @@
 version: '3.8'
 services:
+  mysql:
+    image: mysql:8.0
+    ports:
+      - "3306:3306"
+    environment:
+      MYSQL_ROOT_PASSWORD: admin
+    volumes:
+      - mysql_data:/var/lib/mysql
+      - ./mysql/init:/docker-entrypoint-initdb.d
+    healthcheck:
+      test: ["CMD", "mysqladmin", "ping", "-h", "localhost"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    restart: unless-stopped
+
   redis:
     image: alexmy/redis_custom:7.0.15
     ports:
       - "6379:6379"
+    volumes:
+      - redis_data:/data
     restart: unless-stopped
 
   hdf5:
     image: alexmy/hdf5
     ports:
-      - "5000:5000"  # Map port 5000 for the Flask server
+      - "5000:5000"
     restart: unless-stopped
 
-  sgs_core:
-    image: alexmy/sgs.ai
+  backend:
+    build:
+      context: .
+      dockerfile: Dockerfile
     ports:
-      - "8000:8000"  # Map port 8000 for the SGS Core server
+      - "8000:8000"
+    environment:
+      - REDIS_HOST=redis
+      - REDIS_PORT=6379
+      - HLLSETS_PATH=/app/HllSets/src/HllSets.jl
+      - MCP_SERVER_URL=http://host.docker.internal:8001
+      - RUNNING_IN_DOCKER=1
+      - ANTHROPIC_API_KEY=
+      - AUTH_DB_HOST=mysql
+      - AUTH_DB_PORT=3306
+      - AUTH_DB_USER=root
+      - AUTH_DB_PASSWORD=PASSWORD
+      - AUTH_DB_NAME=dbname
+    depends_on:
+      mysql:
+        condition: service_healthy
+      redis:
+        condition: service_started
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
     restart: unless-stopped
-    # Podman doesn't support `depends_on`, so ensure Redis and HDF5 are started first.
+
+  # mcp_server runs locally (outside Docker) — see mcp_server/
+  # mcp_server:
+  #   build:
+  #     context: ./mcp_server
+  #     dockerfile: Dockerfile
+  #   ports:
+  #     - "8001:8001"
+  #   env_file:
+  #     - ./mcp_server/.env
+  #   environment:
+  #     - RUNNING_IN_DOCKER=1
+  #   extra_hosts:
+  #     - "host.docker.internal:host-gateway"
+  #   restart: unless-stopped
+
+  frontend:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile
+    ports:
+      - "3000:3000"
+    depends_on:
+      - backend
+    restart: unless-stopped
+
+volumes:
+  mysql_data:
+  redis_data:

@@ -2,7 +2,7 @@ using Pkg
 using Tar
 
 # Set the project directory
-project_dir = joinpath(@__DIR__, "sgs_core", "HllSets")
+project_dir = joinpath(@__DIR__, "backend", "HllSets")
 
 # Activate the project
 Pkg.activate(project_dir)

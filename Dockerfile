@@ -8,13 +8,15 @@ RUN apt-get update && apt-get install -y \
     libunwind-dev \
     libssl-dev \
     libffi-dev \
+    patchelf \
     && rm -rf /var/lib/apt/lists/*
 
 # Install Julia
-ENV JULIA_VERSION=1.9.3
-RUN wget https://julialang-s3.julialang.org/bin/linux/x64/1.9/julia-${JULIA_VERSION}-linux-x86_64.tar.gz \
+ENV JULIA_VERSION=1.10.7
+RUN wget https://julialang-s3.julialang.org/bin/linux/x64/1.10/julia-${JULIA_VERSION}-linux-x86_64.tar.gz \
     && tar -xvzf julia-${JULIA_VERSION}-linux-x86_64.tar.gz -C /usr/local --strip-components=1 \
-    && rm julia-${JULIA_VERSION}-linux-x86_64.tar.gz
+    && rm julia-${JULIA_VERSION}-linux-x86_64.tar.gz \
+    && find /usr/local/lib/julia -name '*.so' -exec patchelf --clear-execstack {} \; 2>/dev/null || true
 
 # Add Julia to PATH
 ENV PATH="/usr/local/bin:$PATH"
@@ -29,7 +31,7 @@ RUN python -m pip install uv
 WORKDIR /app
 
 # Copy the HllSets directory to the working directory
-COPY sgs_core/HllSets /app/HllSets
+COPY backend/HllSets /app/HllSets
 
 # Install HllSets as a Julia package
 RUN julia -e 'using Pkg; Pkg.develop(path="/app/HllSets")'
@@ -41,7 +43,12 @@ COPY pyproject.toml .
 RUN uv pip install -r pyproject.toml --all-extras --system
 
 # Copy the rest of the application code
-COPY sgs_core/*.py .
+COPY backend/*.py .
+COPY backend/core/ ./core/
+COPY backend/api/ ./api/
+COPY backend/services/ ./services/
+COPY backend/utils/ ./utils/
+COPY backend/mcp/ ./mcp/
 
 # Run boot_julia.py during the build
 RUN python boot_julia.py
@@ -54,8 +61,8 @@ EXPOSE 8000
 
 # Add a health check
 HEALTHCHECK --interval=30s --timeout=10s \
-    CMD curl -f http://localhost:8000/health || exit 1
+    CMD curl -f http://localhost:8000/ || exit 1
 
-# Start the SGS.core server
-ENTRYPOINT ["python"]
-CMD ["core_server.py"]
+# Start the FastAPI server
+ENTRYPOINT ["python", "-m", "uvicorn"]
+CMD ["main:app", "--host", "0.0.0.0", "--port", "8000"]
